@@ -45,8 +45,10 @@ var DLL = 'tvlauncher-dotnet.dll';
 var UNIT = 'vetro-dock';                              // the dock's own systemd unit
 var HOME_APP = 'com.samsung.tv.csfs';
 // 2025 (RSM/CoBA) firmware runs the sidebar and media rows as separate processes that stay on top of the dock
-// when only csfs is closed, so the guard and the enable-time kill target all three.
-var HOME_KILL = [HOME_APP, 'com.samsung.tv.home.sidebar', 'com.samsung.tv.home.media'];
+// when only csfs is closed, so the guard and the enable-time kill target all three. The 2022 Home (Tizen 6.5, S95B)
+// adds the Ambient hub, home.art: left running, the hubs held about 150 MB there (MemAvailable 457 -> 604 MB once
+// closed). The firmware does not restart them by itself; Samsung Home, opened from the dock, brings them back.
+var HOME_KILL = [HOME_APP, 'com.samsung.tv.home.sidebar', 'com.samsung.tv.home.media', 'com.samsung.tv.home.art'];
 var AUTORUN_KEY = 'db/menu/smart_hub/ontvsetting/auto_start';   // Samsung's "Autorun Smart Hub"
 var HOME_CODE = 63;                                   // Home on the forwarded remote Vetro creates
 var START_WAIT_MS = 15000;
@@ -327,13 +329,17 @@ Dock.prototype.enable = function () {
         return self.turnOffAutorun()
             .catch(function (e) { self.lastError = 'The launcher is on, but Autorun Smart Hub could not be switched off: ' + e.message; });
     }).then(function () {
-        // Samsung's Home is idle in the background; closing it frees its memory, and Settings or
-        // Source opened from the dock start it again on demand.
-        return self.execute(HOME_KILL.map(function (id) { return 'app_launcher -k ' + id; }).join('; '), 8000).catch(function () {});
+        // Settings or Source opened from the dock start Samsung's Home again on demand.
+        return self.closeHome();
     }).then(function () { return self.status(); }).catch(function (e) {
         self.lastError = e.message;
         return self.stopDock().catch(function () {}).then(function () { throw e; });
     }).finally(function () { self.busy = false; });
+};
+
+// Samsung's Home and its hubs are idle in the background; closing them frees their memory. Never fatal.
+Dock.prototype.closeHome = function () {
+    return this.execute(HOME_KILL.map(function (id) { return 'app_launcher -k ' + id; }).join('; '), 12000).catch(function () {});
 };
 
 Dock.prototype.stopDock = function () {
@@ -431,8 +437,8 @@ Dock.prototype.enableCustom = function (appId) {
             .catch(function (e) { self.lastError = 'The custom launcher is on, but Autorun Smart Hub could not be switched off: ' + e.message; });
     }).then(function () {
         if (changing) return null;
-        // Samsung's Home is idle in the background; closing it frees its memory and clears the screen for the app.
-        return self.execute(HOME_KILL.map(function (id) { return 'app_launcher -k ' + id; }).join('; '), 8000).catch(function () {});
+        // Closing Samsung's Home also clears the screen for the app.
+        return self.closeHome();
     }).then(function () { return self.status(); }).catch(function (e) {
         self.lastError = e.message;
         return self.undoCustomStart(before).then(function () { throw e; });
@@ -591,7 +597,12 @@ Dock.prototype.supervise = function (agentConnected) {
     this.busy = true;
     return this.healHome(state).then(function () { return self.probe(); }).then(function (p) {
         if (p.running) { self.failures = 0; self.refreshCatalogLater(); return 'running'; }
-        return self.launch(true).then(function () { self.failures = 0; self.lastError = null; self.refreshCatalogLater(); return 'started'; });
+        return self.launch(true).then(function () {
+            self.failures = 0; self.lastError = null; self.refreshCatalogLater();
+            // After a boot the firmware has started Samsung's Home and its hubs again: close them as enable() does. A
+            // restart after a crash later on leaves them alone, since the Home key fell back to Samsung's Home meanwhile.
+            return self.uptime() < BOOT_WINDOW_S ? self.closeHome().then(function () { return 'started'; }) : 'started';
+        });
     }).then(function (result) {
         return custom ? self.checkCustomApp(state.customApp).then(function (gone) { return gone || result; }) : result;
     }).catch(function (e) {

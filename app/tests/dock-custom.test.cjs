@@ -45,7 +45,7 @@ function fixture(options) {
     assert.equal(s.customApp, 'com.example.launcher');
     assert.deepEqual(f.tv.homeCalls, [], 'Samsung Home is never disabled, restored or even read by the mode');
     assert.equal(f.dock.readState().customHomeDisabled, false);
-    assert.ok(/--home-launch com\.example\.launcher/.test(f.tv.started) && /--kill-on-home com\.samsung\.tv\.csfs,com\.samsung\.tv\.home\.sidebar,com\.samsung\.tv\.home\.media/.test(f.tv.started),
+    assert.ok(/--home-launch com\.example\.launcher/.test(f.tv.started) && /--kill-on-home com\.samsung\.tv\.csfs,com\.samsung\.tv\.home\.sidebar,com\.samsung\.tv\.home\.media,com\.samsung\.tv\.home\.art /.test(f.tv.started),
         'the guard that closes Samsung Home after each press is on: ' + f.tv.started);
     assert.equal(f.tv.autorun, 0, 'the TV does not power on into Samsung Home');
     assert.equal(f.tv.csfsKilled, true, 'Samsung Home is closed once');
