@@ -8,16 +8,17 @@ function selectRuntime(versions) {
     if (versions.some(function (v) { return v[0] === 3 && v[1] === 1; })) return '3.1';
     throw failure('runtime-unsupported');
 }
+// Samsung's own dotnet launcher has no --list-runtimes. Its answer is recognised by the message alone: the exit status
+// it comes with has not been seen on every model, and the symlink below still has to prove the runtime.
+function samsungLauncher(result) { return String(result.output || '').indexOf('Unknown option --list-runtimes') >= 0; }
 function detectRuntime(result, files) {
-    if (result.ok) {
+    if (result.ok && !samsungLauncher(result)) {
         var versions = [], match;
         var pattern = /^Microsoft\.NETCore\.App (\d+)\.(\d+)\.\d+\s+\[/gm;
         while ((match = pattern.exec(result.output))) versions.push([Number(match[1]), Number(match[2])]);
         return selectRuntime(versions);
     }
-    if (result.code !== 255 || result.output.indexOf('Unknown option --list-runtimes') < 0) {
-        throw failure('runtime-probe-failed');
-    }
+    if (!samsungLauncher(result)) throw failure('runtime-probe-failed');
     // Samsung apphost exposes its active CLR through this symlink; never guess
     // a runtime from model/year, or use unrelated installed runtime directories.
     var active = '/usr/share/dotnet.tizen/netcoreapp';

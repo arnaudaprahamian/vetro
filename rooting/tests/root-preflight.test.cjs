@@ -22,7 +22,15 @@ function probe(overrides) {
     assert.throws(() => preflight.detectRuntime(samsung, files('3.0.1')), {code: 'runtime-unsupported'});
     assert.throws(() => preflight.detectRuntime(samsung, files('not-a-version')), {code: 'runtime-probe-failed'});
     assert.throws(() => preflight.detectRuntime(samsung, {realpathSync: files('3.1.3').realpathSync, accessSync: () => {throw Error('unreadable CLR');}}), {code: 'runtime-probe-failed'});
-    assert.throws(() => preflight.detectRuntime({...samsung, code: 1}, files('3.1.3')), {code: 'runtime-probe-failed'});
+    // The launcher's message decides, not its exit status; the symlink still has to prove the runtime.
+    assert.equal(preflight.detectRuntime({...samsung, code: 1}, files('3.1.3')), '3.1');
+    assert.equal(preflight.detectRuntime({ok: true, code: 0, output: samsung.output}, files('3.1.3')), '3.1');
+    assert.throws(() => preflight.detectRuntime({ok: false, code: 1, output: 'dotnet: not found\n'}, files('3.1.3')), {code: 'runtime-probe-failed'});
+    // S95B (QE55S95BATXXC, Tizen 6.5): the launcher's own words, and netcoreapp -> .../Microsoft.NETCore.App/3.1.3.
+    const s95b = {ok: false, code: 255, output: 'Unknown option --list-runtimes.\nExecute a .NET application or command.\n\nUsage: dotnet [options] [path-to-executable] [arguments]\n'};
+    assert.equal(preflight.detectRuntime(s95b, {realpathSync: () => '/usr/share/dotnet/shared/Microsoft.NETCore.App/3.1.3', accessSync: () => {}}), '3.1');
+    assert.equal(preflight.effectiveCapabilities('/usr/bin/dotnet cap_setgid,cap_sys_admin+ei\n', '/usr/bin/dotnet', ['cap_setgid', 'cap_sys_admin']), true);
+    assert.equal(preflight.effectiveCapabilities('/usr/sbin/sdbd-tarlauncher cap_setgid,cap_setuid+eip\n', '/usr/sbin/sdbd-tarlauncher', ['cap_setgid', 'cap_setuid']), true);
     assert.deepEqual(await probe(), {runtime: '6.0', source: 'detected'});
     assert.deepEqual(await probe({dotnet: listing('3.1.3')}), {runtime: '3.1', source: 'detected'});
     await assert.rejects(probe({getcap: {ok: false}}), {code: 'capabilities-probe-failed'});
