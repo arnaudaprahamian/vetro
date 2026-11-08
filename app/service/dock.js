@@ -600,6 +600,8 @@ Dock.prototype.iconFile = function (slug) {
     if (!entry && !systemIcon) return null;
     var files = [];
     if (entry && entry.icon && catalog.iconPathOk(entry.icon)) files.push(entry.icon);
+    // An input's device tile is one of the dock's own icons, named by file.
+    if (entry && entry.icon && catalog.packagedIconOk(entry.icon)) files.push(path.join(this.dir, 'res', 'icons', entry.icon));
     files.push(path.join(this.dir, 'res', 'icons', slug + '.png'));
     // Local app-only runs use source assets; WGTs carry the same files under native/dock/res.
     if (systemIcon) files.push(path.join(__dirname, '..', '..', 'dock', 'res', 'icons', slug + '.png'));

@@ -39,6 +39,31 @@ var COBALT_YOUTUBE = 'com.samsung.tv.cobalt-yt';
 // The dock repeats this check, but the file is written here, so refuse a bad path here as well.
 function iconOk(p) { return ICON_FILE.test(p) && p.indexOf('..') < 0 && p.indexOf('//') < 0; }
 
+// What is plugged into each HDMI port, from Samsung's own device icon for it (i_icon_device_m_<name>.svg: the type the
+// owner picked in the TV's source menu, or the one CEC reported). The TV's icons are SVG, which the dock cannot load,
+// so the name only chooses one of the dock's own tiles: res/icons/dev-<kind>-<port>.png, drawn by
+// dock/tools/system_icons.py (DEVICES). A name that is not in this table keeps the plain HDMI tile.
+var DEVICE_KINDS = {
+    gamepad: 'gamepad',
+    pc: 'pc',
+    cablebox: 'cablebox', stb: 'cablebox', settop: 'cablebox',
+    blueray: 'disc', bluray: 'disc', dvd: 'disc',
+    hometheater: 'audio', soundbar: 'audio',
+    mobile: 'mobile', phone: 'mobile',
+    camera: 'camera'
+};
+var DEVICE_ICON_RE = /(?:^|\/)i_icon_device_(?:[a-z]_)?([a-z0-9]+)\.(?:svg|png)$/i;
+// A tile shipped with the dock (res/icons), named by file rather than by path: the dock resolves it there.
+var PACKAGED_ICON = /^dev-[a-z]+-[1-4]\.png$/;
+function deviceKind(meta) {
+    var paths = [meta.EditIconPath, meta.IconPath, meta.OrgIconPath];
+    for (var i = 0; i < paths.length; i++) {
+        var m = DEVICE_ICON_RE.exec(String(paths[i] || '')), name = m && m[1].toLowerCase();
+        if (name && Object.prototype.hasOwnProperty.call(DEVICE_KINDS, name)) return DEVICE_KINDS[name];
+    }
+    return null;
+}
+
 // Live TV entries in the Home row are not web apps. The icon comes from the package of the same
 // name when the TV has one; the dock draws its own generic one otherwise.
 var LIVE = {
@@ -137,8 +162,11 @@ function sourceEntries(parsed, options) {
         var name = cleanLabel(meta.EditName || meta.DetectedName, base);
         var useImages = options && options.useSourceImages === true && type >= 13;
         var samsung = useImages ? [meta.LauncherUnfocusedIconPath, meta.IconPath, meta.OrgIconPath].filter(iconOk)[0] || null : null;
+        var kind = type >= 13 ? deviceKind(meta) : null, device = kind ? 'dev-' + kind + '-' + (type - 12) + '.png' : null;
         var entry = {slug: type === 0 ? 'in-tv' : 'in-hdmi' + (type - 12), label: name,
-            appId: 'source:' + type, icon: samsung, killFirst: null};
+            appId: 'source:' + type, icon: samsung || device, killFirst: null};
+        // A Samsung PNG wins when the owner asked for them; the device tile stands in when that file is missing.
+        if (samsung && device) entry.altIcon = device;
         // The Sources page always keeps TV, HDMI1, HDMI2, HDMI3, HDMI4 order and port labels.
         entry.inputLabel = type === 0 || name === base ? base : cleanLabel(base + ' - ' + name, base);
         return entry;
@@ -256,19 +284,21 @@ function tsv(built) {
 function existing(execute, built) {
     var paths = [];
     var all = built.entries.concat(built.inputs || []);
-    all.forEach(function (e) { [e.icon, e.altIcon].forEach(function (p) { if (p && paths.indexOf(p) < 0) paths.push(p); }); });
+    // The dock's own tiles ship with it: only the TV's files are looked for.
+    all.forEach(function (e) { [e.icon, e.altIcon].forEach(function (p) { if (p && !PACKAGED_ICON.test(p) && paths.indexOf(p) < 0) paths.push(p); }); });
     if (!paths.length) return Promise.resolve(built);
     var script = 'for p in ' + paths.map(function (p) { return "'" + p + "'"; }).join(' ') + '; do [ -f "$p" ] && echo "OK|$p"; done; true';
     return execute(wrap(script), 10000).then(function (r) {
         if (r.exit_code || r.timed_out) { all.forEach(function (e) { delete e.altIcon; }); return built; }
         var ok = {};
         String(r.stdout || '').split('\n').forEach(function (l) { if (l.indexOf('OK|') === 0) ok[l.slice(3).trim()] = true; });
+        function there(p) { return PACKAGED_ICON.test(p) || ok[p]; }
         all.forEach(function (e) {
             if (e.altIcon) {
-                if (!(e.icon && ok[e.icon]) && ok[e.altIcon]) e.icon = e.altIcon;
+                if (!(e.icon && there(e.icon)) && there(e.altIcon)) e.icon = e.altIcon;
                 delete e.altIcon;
             }
-            if (e.icon && !ok[e.icon]) { built.skipped.push({item: e.slug, reason: 'Icon file missing; a generic icon is used'}); e.icon = null; }
+            if (e.icon && !there(e.icon)) { built.skipped.push({item: e.slug, reason: 'Icon file missing; a generic icon is used'}); e.icon = null; }
         });
         return built;
     }, function () { all.forEach(function (e) { delete e.altIcon; }); return built; });
@@ -292,4 +322,5 @@ function load(execute, options) {
     });
 }
 
-module.exports = {sourceEntries: sourceEntries, inputsTsv: inputsTsv, iconPathOk: iconOk, COBALT_YOUTUBE: COBALT_YOUTUBE, load: load, parse: parse, build: build, tsv: tsv, script: script, slugify: slugify, cleanLabel: cleanLabel};
+module.exports = {sourceEntries: sourceEntries, inputsTsv: inputsTsv, iconPathOk: iconOk, packagedIconOk: function (p) { return PACKAGED_ICON.test(String(p)); },
+    DEVICE_KINDS: DEVICE_KINDS, deviceKind: deviceKind, COBALT_YOUTUBE: COBALT_YOUTUBE, load: load, parse: parse, build: build, tsv: tsv, script: script, slugify: slugify, cleanLabel: cleanLabel};

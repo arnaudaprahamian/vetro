@@ -19,7 +19,7 @@ from the TV at start-up, and ends with two outline pills, Settings and Samsung H
 - `src/` the dock. `Core/` is pure logic (layout, catalog, input decoding) and has tests;
   `Native/` holds the P/Invoke surface; `Ui/` draws with EFL.
 - `tests/` desktop tests of `Core/`: `cd tests && dotnet run`.
-- `res/` the images (bar, shadow, glow, focus ring) and the generic Settings/HDMI icons.
+- `res/` the images (bar, shadow, glow, focus ring), the generic Settings/HDMI icons and the HDMI device tiles.
 - `tools/` generators for those images (`make-glass.cjs`, `system_icons.py`).
 - `designer/` a standalone page to try looks; `designer/chosen.json` is the design the launcher currently draws.
 
@@ -31,6 +31,12 @@ code. `app/tests/dock-design.test.cjs` checks them against `designer/chosen.json
 
 One rule ties the shapes together: an icon's corner radius is a percentage of its side (`Design.IconRadiusPct`),
 and the focus ring and the glow are built from that same radius, at every size the icon takes while it grows.
+
+The inputs panel draws each HDMI port as a tile with its number. When the TV knows what is plugged in (the device
+type picked in its source menu, or the one reported over CEC), the tile shows that device instead of the plug, with
+the number kept under it: the service maps Samsung's icon name to a kind (`DEVICE_KINDS` in
+`app/service/dock-catalog.js`) and names `dev-<kind>-<port>.png` in the icon column, a file of `res/icons` that
+`system_icons.py` draws for every kind and port. Samsung's own device icons are SVG, which the dock cannot load.
 
 To change the look: edit `chosen.json` (or paste a new designer export there), update the matching constants in
 `Design.cs` / `Layout.cs`, then run `node tools/make-glass.cjs` and `python3 tools/system_icons.py`-based

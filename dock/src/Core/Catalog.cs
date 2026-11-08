@@ -44,6 +44,12 @@ namespace Launcher.Core
         /// </summary>
         public readonly string KillFirst;
 
+        /// <summary>
+        /// File name of one of the dock's own icons (res/icons) drawn instead of res/icons/slug.png, for example the
+        /// device tile of an HDMI input (dev-gamepad-2.png); null otherwise. slug.png stays the fallback.
+        /// </summary>
+        public readonly string IconFile;
+
         public AppEntry(string slug, string label, string appId, string fallbackAppId)
             : this(slug, label, appId, fallbackAppId, null) { }
 
@@ -60,9 +66,12 @@ namespace Launcher.Core
             : this(slug, label, appId, fallbackAppId, key, sourceType, panel, systemApp, iconPath, null) { }
 
         public AppEntry(string slug, string label, string appId, string fallbackAppId, string key, int sourceType, string panel, bool systemApp, string iconPath, string killFirst)
+            : this(slug, label, appId, fallbackAppId, key, sourceType, panel, systemApp, iconPath, killFirst, null) { }
+
+        public AppEntry(string slug, string label, string appId, string fallbackAppId, string key, int sourceType, string panel, bool systemApp, string iconPath, string killFirst, string iconFile)
         {
             Slug = slug; Label = label; AppId = appId; FallbackAppId = fallbackAppId; Key = key;
-            SourceType = sourceType; Panel = panel; SystemApp = systemApp; IconPath = iconPath; KillFirst = killFirst;
+            SourceType = sourceType; Panel = panel; SystemApp = systemApp; IconPath = iconPath; KillFirst = killFirst; IconFile = iconFile;
         }
     }
 
@@ -75,7 +84,8 @@ namespace Launcher.Core
 
     /// <summary>
     /// Parses the app list written by tools/gen-apps.py. One tab-separated entry per line:
-    /// <c>slug TAB label TAB appId [TAB fallbackAppId [TAB iconPath [TAB killFirstAppId]]]</c>, where the third field may also be
+    /// <c>slug TAB label TAB appId [TAB fallbackAppId [TAB icon [TAB killFirstAppId]]]</c>, where the icon is an absolute path
+    /// (<see cref="ValidIconPath"/>) or the file name of one of the dock's own icons (<see cref="ValidIconFile"/>), and the third field may also be
     /// <c>key:XF86Menu</c> (inject that remote key; the fourth field is then an app to open if the
     /// key tool is missing), <c>source:13</c> (switch to that input) or <c>panel:inputs</c> (open
     /// that dock page) or <c>sys:appId</c> (launch that app, drawn as a system control); blank lines and lines starting with '#' are ignored. Bad lines are skipped and reported, never fatal: a launcher
@@ -121,6 +131,11 @@ namespace Launcher.Core
             }
             foreach (string root in IconRoots) if (s.StartsWith(root, StringComparison.Ordinal)) return true;
             return false;
+        }
+        /// <summary>A file name of res/icons: a slug and ".png", no directory, so it can never point anywhere else.</summary>
+        public static bool ValidIconFile(string s)
+        {
+            return s != null && s.EndsWith(".png", StringComparison.Ordinal) && IsSlug(s.Substring(0, s.Length - 4));
         }
         private static bool IsAppId(string s) { return Chars(s, 120, true, true); }
         /// <summary>True for a plain Tizen app id (letters, digits, dot, dash, underscore): safe to put on a command line.</summary>
@@ -197,11 +212,18 @@ namespace Launcher.Core
                 if (label.Length == 0 || label.Length > 40) { problems.Add("line " + (n + 1) + ": bad label"); continue; }
                 if (!(special && appId.Length == 0) && !IsAppId(appId)) { problems.Add("line " + (n + 1) + ": bad appId"); continue; }
                 if (fallback.Length > 0 && !IsAppId(fallback)) { problems.Add("line " + (n + 1) + ": bad fallback appId"); continue; }
+                string iconFile = null;
+                if (icon.Length > 0 && icon.IndexOf('/') < 0)
+                {
+                    if (!ValidIconFile(icon)) { problems.Add("line " + (n + 1) + ": bad icon file"); continue; }
+                    iconFile = icon;
+                    icon = "";
+                }
                 if (icon.Length > 0 && !ValidIconPath(icon)) { problems.Add("line " + (n + 1) + ": bad icon path"); continue; }
                 if (killFirst.Length > 0 && !IsAppId(killFirst)) { problems.Add("line " + (n + 1) + ": bad kill-first app id"); continue; }
                 if (!seen.Add(slug)) { problems.Add("line " + (n + 1) + ": duplicate slug " + slug); continue; }
                 if (entries.Count >= MaxEntries) { problems.Add("line " + (n + 1) + ": more than " + MaxEntries + " entries, ignored"); continue; }
-                entries.Add(new AppEntry(slug, label, appId.Length > 0 ? appId : null, fallback.Length > 0 ? fallback : null, key, sourceType, panel, systemApp, icon.Length > 0 ? icon : null, killFirst.Length > 0 ? killFirst : null));
+                entries.Add(new AppEntry(slug, label, appId.Length > 0 ? appId : null, fallback.Length > 0 ? fallback : null, key, sourceType, panel, systemApp, icon.Length > 0 ? icon : null, killFirst.Length > 0 ? killFirst : null, iconFile));
             }
             return new CatalogResult(entries.ToArray(), problems.ToArray());
         }

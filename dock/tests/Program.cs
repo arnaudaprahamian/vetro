@@ -127,6 +127,24 @@ namespace Launcher.Tests
                 T.True(ins[0].SourceType == 0 && ins[1].SourceType == 13 && ins[4].SourceType == 16, "built-in numbers follow Samsung's SourceType");
             });
 
+            T.Run("catalog: an input's device tile is one of the dock's own icons, named by file", () =>
+            {
+                var r = Catalog.Parse("in-hdmi2\tHDMI 2 - PlayStation 5\tsource:14\t\tdev-gamepad-2.png\nin-hdmi1\tHDMI 1\tsource:13\n"
+                    + "app\tApp\ta.b\t\t/opt/usr/apps/a.b/shared/res/icon.png\n");
+                T.Eq(r.Problems.Length, 0, "valid lines");
+                T.Eq(r.Entries[0].IconFile, "dev-gamepad-2.png", "a bare file name is a res/icons file");
+                T.Eq(r.Entries[0].IconPath, null, "and not a path");
+                T.Eq(r.Entries[0].SourceType, 14, "still the input");
+                T.True(r.Entries[1].IconFile == null && r.Entries[1].IconPath == null, "no icon column: slug.png");
+                T.True(r.Entries[2].IconFile == null && r.Entries[2].IconPath == "/opt/usr/apps/a.b/shared/res/icon.png", "a path stays a path");
+                foreach (string bad in new[] { "dev-gamepad-2.svg", "Dev-Pad-2.png", "dev pad.png", "..png", ".png", "dev-x-1.png.png", "dev;x.png", "../dev-x-1.png", "res/dev-x-1.png" })
+                {
+                    var b = Catalog.Parse("x\tX\tsource:13\t\t" + bad + "\n");
+                    T.True(b.Entries.Length == 0 && b.Problems.Length == 1, "rejects icon " + bad);
+                }
+                T.True(Catalog.ValidIconFile("in-hdmi1.png") && !Catalog.ValidIconFile(null) && !Catalog.ValidIconFile(new string('a', 41) + ".png"), "icon file names");
+            });
+
             T.Run("layout: a narrower page is centred in the shared window", () =>
             {
                 var wide = new DockLayout(13, 1920, 1080);

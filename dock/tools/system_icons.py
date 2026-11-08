@@ -1,4 +1,4 @@
-"""Icons for the dock's system entries (Source, Settings) and the inputs panel.
+"""Icons for the dock's system entries (Source, Settings) and the inputs panel (each HDMI port, alone or with its device).
 
 Samsung's own icons for these live inside the Home component and are not separate files,
 so the dock draws them. Two families on purpose, so the shape says what the thing is:
@@ -178,6 +178,41 @@ def render_input(slug, path):
     _render(accent, glyph, path)
 
 
+# What Samsung says is plugged into an HDMI port (the device type the owner picked, or the one CEC reported), as a
+# Phosphor bold glyph. The service maps Samsung's icon names onto these kinds (app/service/dock-catalog.js,
+# DEVICE_KINDS); a port with no known device keeps the plain HDMI port above.
+DEVICES = {
+    "gamepad": "game-controller-bold",
+    "pc": "desktop-bold",
+    "cablebox": "hard-drive-bold",
+    "disc": "disc-bold",
+    "audio": "speaker-hifi-bold",
+    "mobile": "device-mobile-bold",
+    "camera": "camera-bold",
+}
+
+
+def _device_glyph(kind, number):
+    """The device in place of the HDMI port, the port number under it exactly as on the HDMI tiles."""
+    digit = _phosphor(NUMBERS[number], 40)
+    g = Image.open(os.path.join(GLYPH_DIR, DEVICES[kind] + ".png")).convert("RGBA")
+    g = g.crop(g.getchannel("A").getbbox())
+
+    def draw(d, c, acc):
+        # the band the port takes on an HDMI tile: about 68 wide, 40 tall, centred 36 from the top
+        k = min(68 * SS / g.width, 40 * SS / g.height)
+        dev = g.resize((max(1, round(g.width * k)), max(1, round(g.height * k))), Image.LANCZOS)
+        kind_, layer = digit(d, c, acc)
+        layer = layer.transform(layer.size, Image.AFFINE, (1, 0, 0, 0, 1, -22 * SS))
+        layer.alpha_composite(dev, ((SIZE * SS - dev.width) // 2, 36 * SS - dev.height // 2))
+        return ("overlay", layer)
+    return draw
+
+
+def render_device(kind, number, path):
+    _render(INPUTS["in-hdmi%d" % number][2], _device_glyph(kind, number), path)
+
+
 def _control():
     """Round frosted button: translucent white over whatever the dock glass shows, a soft light at the
     top left and a bright thin rim. It deliberately has no hue of its own."""
@@ -303,6 +338,9 @@ def render_all(icons_dir):
         render(slug, os.path.join(icons_dir, slug + ".png"))
     for slug in INPUTS:
         render_input(slug, os.path.join(icons_dir, slug + ".png"))
+    for kind in DEVICES:
+        for number in NUMBERS:
+            render_device(kind, number, os.path.join(icons_dir, "dev-%s-%d.png" % (kind, number)))
 
 
 def inputs_tsv_rows():

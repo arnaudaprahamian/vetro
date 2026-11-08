@@ -251,7 +251,14 @@ namespace Launcher.Ui
             AppEntry e = _items[idx];
             IntPtr img = Efl.evas_object_image_add(_evas);
             bool fromRegistry = e.IconPath != null && LoadRegistryIcon(img, e, idx);
-            if (!fromRegistry) Efl.evas_object_image_file_set(img, Path.Combine(_assets, "icons", e.Slug + ".png"), null);
+            bool own = false;
+            if (!fromRegistry && e.IconFile != null)
+            {
+                Efl.evas_object_image_file_set(img, Path.Combine(_assets, "icons", e.IconFile), null);
+                own = Efl.evas_object_image_load_error_get(img) == Efl.EvasLoadErrorNone;
+                if (!own) _log("icon missing: " + e.IconFile + ", " + e.Slug + ".png instead");
+            }
+            if (!fromRegistry && !own) Efl.evas_object_image_file_set(img, Path.Combine(_assets, "icons", e.Slug + ".png"), null);
             if (!fromRegistry && Efl.evas_object_image_load_error_get(img) == Efl.EvasLoadErrorNone) SampleGlowColor(img, idx);
             if (!fromRegistry && Efl.evas_object_image_load_error_get(img) != Efl.EvasLoadErrorNone)
             {
