@@ -15,6 +15,8 @@ var TRAILING_TABS_RE = /\t+$/;
 //   - the web app registry     /opt/dbspace/.webappservice.db     (title and Tizen app id)
 //   - the registry's icons     /opt/share/webappservice/apps_icon/all/<id>/
 //   - the package icons        /opt/dbspace/.pkgmgr_parser.db     (sideloaded apps, TV Plus)
+//   - the installed apps       the same database, with their label: the Smart Hub registry keeps the rows of apps
+//                              uninstalled since (four ghost tiles on a S95B), so the package manager decides
 // Everything is read in one shell call. The result is a tab-separated list for the dock
 // (dock/src/Core/Catalog.cs): slug, label, app id, fallback, icon file. The dock rounds the
 // icons itself; this module never touches an image.
@@ -70,6 +72,7 @@ function script() {
         'for d in ' + ICON_ROOT + '*/; do id=$(basename "$d"); for s in ' + sizes + '; do',
         '  if [ -f "$d$s.png" ]; then echo "I|$id|$d$s.png"; break; fi; done; done',
         'sqlite3 -readonly /opt/dbspace/.pkgmgr_parser.db "SELECT \'P|\'||hex(a.app_id)||\'|\'||hex(l.app_icon) FROM package_app_info a JOIN package_app_localized_info l ON l.app_id=a.app_id WHERE l.app_icon != \'\';" 2>/dev/null',
+        'sqlite3 -readonly /opt/dbspace/.pkgmgr_parser.db "SELECT \'A|\'||hex(a.app_id)||\'|\'||hex(COALESCE((SELECT l.app_label FROM package_app_localized_info l WHERE l.app_id=a.app_id AND l.app_label != \'\' LIMIT 1),\'\')) FROM package_app_info a;" 2>/dev/null',
         '[ -d /usr/apps/' + COBA_HOME + ' ] || [ -d /opt/usr/apps/' + COBA_HOME + ' ] && echo "H|' + COBA_HOME + '"',
         'true'
     ].join('\n');
@@ -84,7 +87,8 @@ function unhex(v) {
 // Splits the script's output into what each source said. Lines that do not parse are skipped:
 // one odd registry row must not leave the TV without a dock.
 function parse(text) {
-    var out = {order: [], registry: {}, icons: {}, packageIcons: {}, sources: {}, homeApp: null, rowFrom: null};
+    // installed stays null without A| lines (an older output, or a read that failed): nothing is filtered then.
+    var out = {order: [], registry: {}, icons: {}, packageIcons: {}, sources: {}, homeApp: null, rowFrom: null, installed: null};
     String(text || '').split('\n').forEach(function (line) {
         line = line.replace(CR_END_RE, '');
         var f = line.split('|');
@@ -104,6 +108,9 @@ function parse(text) {
             } else if (f[0] === 'P' && f.length === 3) {
                 var icon = unhex(f[2]), id = unhex(f[1]);
                 if (iconOk(icon) && !out.packageIcons[id]) out.packageIcons[id] = icon;
+            } else if (f[0] === 'A' && (f.length === 2 || f.length === 3)) {
+                var appId = unhex(f[1]), appLabel = f.length === 3 && f[2] ? unhex(f[2]) : '';
+                (out.installed = out.installed || {})[appId] = appLabel || true;
             } else if (f[0] === 'H' && f.length === 2) {
                 if (f[1].trim() === COBA_HOME) out.homeApp = COBA_HOME;
             }
@@ -149,9 +156,13 @@ function youtubeIcon(parsed) {
     return found;
 }
 
+// options.hidden: app ids the owner left out of the launcher in Vetro. options.pinned: app ids added after the row,
+// native apps included (Samsung's Apps store, say, which the registry does not list); hidden wins over pinned.
 function build(parsed, options) {
     options = options || {};
-    var entries = [], skipped = [], slugs = {}, inputs = sourceEntries(parsed, options), seenPorts = {};
+    var entries = [], skipped = [], slugs = {}, inputs = sourceEntries(parsed, options), seenPorts = {}, hiddenByUser = {};
+    (options.hidden || []).forEach(function (id) { if (APP_ID.test(id)) hiddenByUser[id] = true; });
+    function installed(appId) { return !parsed.installed || !!parsed.installed[appId]; }
     function add(slug, label, appId, icon) {
         var base = slug, n = 2;
         while (slugs[slug] || slug === 'source' || slug === 'settings') slug = base.slice(0, 36) + '-' + n++;
@@ -184,6 +195,8 @@ function build(parsed, options) {
         if (!reg) { skipped.push({item: item, reason: 'Not installed'}); return; }
         if (reg.hidden) { skipped.push({item: item, reason: 'Hidden in the registry'}); return; }
         if (!APP_ID.test(reg.appId)) { skipped.push({item: item, reason: 'Unusable app id'}); return; }
+        if (hiddenByUser[reg.appId]) { skipped.push({item: item, reason: 'Hidden from the launcher in Vetro'}); return; }
+        if (!installed(reg.appId)) { skipped.push({item: item, reason: 'Uninstalled; the registry still lists it'}); return; }
         var entry = add(slugify(reg.title), cleanLabel(reg.title, reg.appId), reg.appId, parsed.icons[ident] || parsed.packageIcons[reg.appId]);
         if (options.fixTizenTube && TIZENTUBE.test(reg.appId)) {
             entry.killFirst = COBALT_YOUTUBE;
@@ -198,7 +211,10 @@ function build(parsed, options) {
         entries.forEach(function (e) { present[e.appId] = true; });
         parsed.order.forEach(function (item) { if (item.indexOf('d/webapp@') === 0) inOrder[item.slice(9)] = true; });
         Object.keys(parsed.registry).filter(function (id) { return !inOrder[id]; }).map(function (id) { return {id: id, reg: parsed.registry[id]}; })
-            .filter(function (x) { return !x.reg.hidden && APP_ID.test(x.reg.appId) && !present[x.reg.appId] && !/^vetrotvapp(\.|$)/.test(x.reg.appId); })
+            .filter(function (x) {
+                return !x.reg.hidden && APP_ID.test(x.reg.appId) && !present[x.reg.appId] && !hiddenByUser[x.reg.appId] &&
+                    installed(x.reg.appId) && !/^vetrotvapp(\.|$)/.test(x.reg.appId);
+            })
             .sort(function (a, b) { return a.reg.title.localeCompare(b.reg.title); })
             .forEach(function (x) {
                 if (entries.length >= MAX_ENTRIES - SYSTEM_ROWS.length) { skipped.push({item: x.reg.appId, reason: 'The dock holds ' + MAX_ENTRIES + ' entries'}); return; }
@@ -206,6 +222,15 @@ function build(parsed, options) {
                 add(slugify(x.reg.title), cleanLabel(x.reg.title, x.reg.appId), x.reg.appId, parsed.icons[x.id] || parsed.packageIcons[x.reg.appId]);
             });
     }
+    // Pinned apps follow. Without a registry row the label is the package manager's, the icon the package's.
+    (options.pinned || []).forEach(function (id) {
+        if (!APP_ID.test(id) || hiddenByUser[id] || entries.some(function (e) { return e.appId === id; })) return;
+        if (!installed(id)) { skipped.push({item: id, reason: 'Pinned app is not installed'}); return; }
+        if (entries.length >= MAX_ENTRIES - SYSTEM_ROWS.length) { skipped.push({item: id, reason: 'The dock holds ' + MAX_ENTRIES + ' entries'}); return; }
+        var regId = Object.keys(parsed.registry).filter(function (k) { return parsed.registry[k].appId === id; })[0];
+        var label = regId ? parsed.registry[regId].title : parsed.installed && typeof parsed.installed[id] === 'string' ? parsed.installed[id] : id;
+        add(slugify(label), cleanLabel(label, id), id, (regId && parsed.icons[regId]) || parsed.packageIcons[id]);
+    });
     return {entries: entries, inputs: inputs, skipped: skipped, homeApp: parsed.homeApp || null};
 }
 

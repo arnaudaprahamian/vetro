@@ -67,6 +67,10 @@ function wrap(s) { return 'echo ' + Buffer.from(s).toString('base64') + ' | base
 function q(s) { return "'" + String(s).replace(QUOTE_RE, "'\\''") + "'"; }
 
 var SOURCE_OPTION_KEYS = ['showHomeSources', 'useSourceImages'];
+// The owner's app lists (exact app ids): hidden apps are left out of the launcher, pinned ones added after the row.
+var APP_LIST_KEYS = ['hidden', 'pinned'];
+var APP_LIST_MAX = 200;
+function appList(v) { return Array.isArray(v) ? v.filter(function (id) { return typeof id === 'string' && APP_ID_RE.test(id); }) : []; }
 function legacySourceUsage(file, images) {
     try {
         if (fs.statSync(file).size > 65536) return false;
@@ -119,9 +123,10 @@ Dock.prototype.readState = function () {
             customSince: s && typeof s.customSince === 'number' ? s.customSince : null,
             customHomeDisabled: s && s.customHomeDisabled === true,
             showHomeSources: s && typeof s.showHomeSources === 'boolean' ? s.showHomeSources : this.legacyHomeSources,
-            useSourceImages: s && typeof s.useSourceImages === 'boolean' ? s.useSourceImages : this.legacySourceImages};
+            useSourceImages: s && typeof s.useSourceImages === 'boolean' ? s.useSourceImages : this.legacySourceImages,
+            hidden: appList(s && s.hidden), pinned: appList(s && s.pinned)};
     } catch (e) { return {enabled: false, since: null, fixTizenTube: false, noMotion: false, autorunWas: null, customApp: null, customSince: null, customHomeDisabled: false,
-        showHomeSources: this.legacyHomeSources, useSourceImages: this.legacySourceImages}; }
+        showHomeSources: this.legacyHomeSources, useSourceImages: this.legacySourceImages, hidden: [], pinned: []}; }
 };
 
 // Source-option migration must never overwrite an unreadable or malformed existing state.
@@ -222,7 +227,7 @@ Dock.prototype.statusNow = function () {
     var base = {installed: this.installed(), enabled: state.enabled, since: state.since, busy: this.busy,
         error: this.lastError, failures: this.failures, apps: this.lastCatalog, fixTizenTube: state.fixTizenTube, noMotion: state.noMotion, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages, autorunSwitchedOff: state.autorunWas === 1,
         mode: state.customApp ? 'custom' : state.enabled ? 'vetro' : 'off', customApp: state.customApp, customSince: state.customSince,
-        customHomeDisabled: state.customHomeDisabled,
+        customHomeDisabled: state.customHomeDisabled, hidden: state.hidden, pinned: state.pinned,
         entries: this.entries(), inputs: this.inputEntries()};
     return this.probe().then(function (p) {
         return Object.assign(base, {running: p.running, pid: p.pid, samsungHome: p.samsungHome, log: p.log});
@@ -268,7 +273,8 @@ Dock.prototype.writeCatalog = function () {
     var state = this.readState();
     // Persist defaults/migration before generating lists, so a fresh preview cannot be mistaken for legacy data later.
     try { this.validateSourcePreferenceState(); this.patchState({showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages}); } catch (e) { return Promise.reject(e); }
-    return catalog.load(this.execute, {fixTizenTube: state.fixTizenTube, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages}).then(function (c) {
+    return catalog.load(this.execute, {fixTizenTube: state.fixTizenTube, showHomeSources: state.showHomeSources, useSourceImages: state.useSourceImages,
+        hidden: state.hidden, pinned: state.pinned}).then(function (c) {
         try { atomicFile.write(fs, self.appsFile, c.tsv); atomicFile.write(fs, self.inputsFile, c.inputsTsv); }
         catch (e) { throw new Error('The app list could not be saved: ' + e.message); }
         self.lastCatalog = {count: c.count, skipped: c.skipped, at: self.now()};
@@ -545,6 +551,26 @@ Dock.prototype.setFixTizenTube = function (on) {
     if (!state.enabled) return this.writeCatalog().catch(function () {}).then(function () { return self.status(); });   // the preview follows the choice
     return this.refresh().catch(function (e) {
         try { self.patchState({fixTizenTube: state.fixTizenTube}); } catch (e2) {}
+        throw e;
+    });
+};
+
+// Replace the hidden or the pinned list. Like Fix TizenTube it only changes the list: the preview follows at once, and
+// a running launcher is restarted with it (the previous list comes back if that fails). The apps are not touched.
+Dock.prototype.setAppList = function (key, appIds) {
+    var self = this;
+    if (APP_LIST_KEYS.indexOf(key) < 0) return Promise.reject(new Error('Invalid app list'));
+    if (!Array.isArray(appIds) || appIds.length > APP_LIST_MAX || appIds.some(function (id) { return typeof id !== 'string' || !APP_ID_RE.test(id); }))
+        return Promise.reject(new Error('Invalid app list'));
+    if (this.busy) return Promise.reject(new Error('Another launcher change is in progress'));
+    var state = this.readState(), patch = {}, undo = {};
+    patch[key] = appIds.filter(function (id, i) { return appIds.indexOf(id) === i; });
+    undo[key] = state[key];
+    try { this.patchState(patch); }
+    catch (e) { return Promise.reject(e); }
+    if (!state.enabled) return this.writeCatalog().catch(function () {}).then(function () { return self.status(); });
+    return this.refresh().catch(function (e) {
+        try { self.patchState(undo); } catch (e2) {}
         throw e;
     });
 };

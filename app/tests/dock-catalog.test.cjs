@@ -166,3 +166,56 @@ assert.equal(catalog.parse('H|bad;command').homeApp, null);
 // The script reports which Home the row came from.
 assert.match(catalog.script(), /echo "F\|\$F"/);
 console.log('dock-catalog 2022 Home: ok');
+
+// Apps hidden by choice (options.hidden): left out of the row and of the completion, reported with a reason.
+{
+    const p = catalog.parse(['F|media', 'O|d/webapp@hue', 'R|' + hex('hue') + '|' + hex('Hue Sync') + '|' + hex('kupCeIdDkX.HueSync') + '|0',
+        'R|' + hex('br') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0', 'R|' + hex('yt') + '|' + hex('YouTube') + '|' + hex('9Ur5IzDKqV.TizenYouTube') + '|0'].join('\n'));
+    const b = catalog.build(p, {hidden: ['org.tizen.browser', 'kupCeIdDkX.HueSync', 'bad id;']});
+    assert.deepEqual(b.entries.map(e => e.appId), ['9Ur5IzDKqV.TizenYouTube'], 'hidden apps are out of the row and of the completion');
+    assert.ok(b.skipped.some(s => s.item === 'd/webapp@hue' && /Hidden from the launcher/.test(s.reason)));
+    // A csfs row: a hidden app is left out of it too.
+    const c = catalog.parse(['F|csfs', 'O|d/webapp@hue', 'O|d/webapp@br', 'R|' + hex('hue') + '|' + hex('Hue Sync') + '|' + hex('kupCeIdDkX.HueSync') + '|0',
+        'R|' + hex('br') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0'].join('\n'));
+    assert.deepEqual(catalog.build(c, {hidden: ['org.tizen.browser']}).entries.map(e => e.appId), ['kupCeIdDkX.HueSync']);
+}
+console.log('dock-catalog hidden: ok');
+
+// The Smart Hub registry keeps rows for apps uninstalled since (seen on a S95B): the package manager decides.
+{
+    assert.match(catalog.script(), /SELECT 'A\|'\|\|hex\(a\.app_id\)/, 'the script lists the package manager\'s apps');
+    const p = catalog.parse(['F|media', 'O|d/webapp@gone', 'O|d/webapp@hue',
+        'R|' + hex('gone') + '|' + hex('e-Manual') + '|' + hex('g0l3ad0res.emanual') + '|0',
+        'R|' + hex('hue') + '|' + hex('Hue Sync') + '|' + hex('kupCeIdDkX.HueSync') + '|0',
+        'R|' + hex('br') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0',
+        'R|' + hex('sec') + '|' + hex('Security Center') + '|' + hex('J9fZJDMi1v.SecurityCenter') + '|0',
+        'A|' + hex('kupCeIdDkX.HueSync'), 'A|' + hex('org.tizen.browser') + '|'].join('\n'));
+    assert.deepEqual(Object.keys(p.installed).sort(), ['kupCeIdDkX.HueSync', 'org.tizen.browser']);
+    const b = catalog.build(p, {});
+    assert.deepEqual(b.entries.map(e => e.appId), ['kupCeIdDkX.HueSync', 'org.tizen.browser'], 'uninstalled apps are out of the row and of the completion');
+    assert.ok(b.skipped.some(s => s.item === 'd/webapp@gone' && /Uninstalled/.test(s.reason)));
+    // Without the A| lines (older output, or the read failed) nothing changes.
+    assert.equal(catalog.parse('R|' + hex('x') + '|' + hex('X') + '|' + hex('x.app') + '|0').installed, null);
+    assert.deepEqual(catalog.build(catalog.parse(['F|media', 'R|' + hex('x') + '|' + hex('X') + '|' + hex('x.app') + '|0'].join('\n')), {}).entries.map(e => e.appId), ['x.app']);
+}
+console.log('dock-catalog installed cross-check: ok');
+
+// Pinned apps: added after the row, native apps included, label from the package manager when the registry has none.
+{
+    const p = catalog.parse(['F|media', 'O|d/webapp@hue', 'R|' + hex('hue') + '|' + hex('Hue Sync') + '|' + hex('kupCeIdDkX.HueSync') + '|0',
+        'A|' + hex('kupCeIdDkX.HueSync') + '|' + hex('Hue Sync'), 'A|' + hex('com.samsung.tv.store') + '|' + hex('Apps'),
+        'P|' + hex('com.samsung.tv.store') + '|' + hex('/opt/usr/apps/com.samsung.tv.store/shared/res/store.png')].join('\n'));
+    assert.equal(p.installed['com.samsung.tv.store'], 'Apps', 'the package manager label is kept');
+    const b = catalog.build(p, {pinned: ['com.samsung.tv.store', 'kupCeIdDkX.HueSync', 'not.installed.app', 'bad id;']});
+    assert.deepEqual(b.entries.map(e => [e.appId, e.label, e.icon]), [['kupCeIdDkX.HueSync', 'Hue Sync', null], ['com.samsung.tv.store', 'Apps', '/opt/usr/apps/com.samsung.tv.store/shared/res/store.png']],
+        'a pinned native app gets a tile with its label and package icon; an app already on the row is not doubled');
+    assert.ok(b.skipped.some(s => s.item === 'not.installed.app' && /not installed/.test(s.reason)));
+    assert.deepEqual(catalog.build(p, {pinned: ['com.samsung.tv.store'], hidden: ['com.samsung.tv.store']}).entries.map(e => e.appId), ['kupCeIdDkX.HueSync'], 'hidden wins over pinned');
+    // A csfs row: nothing is completed from the registry, but pinned apps are still added.
+    const c = catalog.parse(['F|csfs', 'O|d/webapp@hue', 'R|' + hex('hue') + '|' + hex('Hue Sync') + '|' + hex('kupCeIdDkX.HueSync') + '|0',
+        'R|' + hex('br') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0'].join('\n'));
+    assert.deepEqual(catalog.build(c, {pinned: ['com.samsung.tv.store']}).entries.map(e => [e.appId, e.label]), [['kupCeIdDkX.HueSync', 'Hue Sync'], ['com.samsung.tv.store', 'com.samsung.tv.store']],
+        'no package manager answer: the id is the label');
+    assert.match(catalog.tsv(catalog.build(p, {pinned: ['com.samsung.tv.store']})), /\napps\tApps\tcom\.samsung\.tv\.store\t\t\/opt\/usr\/apps\/com\.samsung\.tv\.store\/shared\/res\/store\.png\n/, 'the dock gets the tile');
+}
+console.log('dock-catalog pinned: ok');

@@ -333,6 +333,36 @@ function fixture(options) {
     await assert.rejects(f.dock.writeCatalog(),/Cannot read launcher preferences/);
     assert.equal(fs.readFileSync(f.dock.stateFile,'utf8'),'broken existing state','migration never overwrites malformed state');
 
+    // Hidden and pinned apps: exact app ids saved with the state, passed to the list, and the list rebuilt at once.
+    const PM = HOME_DATA + '\n' + ['R|' + hex('bbb') + '|' + hex('Browser') + '|' + hex('org.tizen.browser') + '|0',
+        'A|' + hex('org.tizen.netflix-app'), 'A|' + hex('com.samsung.tv.store') + '|' + hex('Apps')].join('\n');
+    f = fixture({homeData: PM.replace('F|csfs', 'F|media')});
+    assert.deepEqual([f.dock.readState().hidden, f.dock.readState().pinned], [[], []]);
+    s = await f.dock.setAppList('pinned', ['com.samsung.tv.store', 'com.samsung.tv.store']);
+    assert.deepEqual(s.pinned, ['com.samsung.tv.store'], 'saved once, reported by the status');
+    assert.deepEqual(f.dock.entries().filter(e => !e.system).map(e => e.appId), ['org.tizen.netflix-app', 'com.samsung.tv.store'],
+        'off: the preview follows; the registry ghost (Browser, not installed) is left out, the pinned native app is in');
+    s = await f.dock.setAppList('hidden', ['org.tizen.netflix-app']);
+    assert.deepEqual(s.hidden, ['org.tizen.netflix-app']);
+    assert.deepEqual(f.dock.entries().filter(e => !e.system).map(e => e.appId), ['com.samsung.tv.store']);
+    assert.deepEqual(JSON.parse(fs.readFileSync(f.dock.stateFile, 'utf8')).hidden, ['org.tizen.netflix-app'], 'kept in vetro-dock.json');
+    await assert.rejects(f.dock.setAppList('hidden', 'org.tizen.netflix-app'), /Invalid app list/);
+    await assert.rejects(f.dock.setAppList('hidden', ['bad id;']), /Invalid app list/);
+    await assert.rejects(f.dock.setAppList('enabled', []), /Invalid app list/);
+    assert.deepEqual(f.dock.readState().hidden, ['org.tizen.netflix-app'], 'a refused list changes nothing');
+    fs.writeFileSync(f.dock.stateFile, JSON.stringify({hidden: ['ok.app', 5, 'bad id;'], pinned: 'x'}));
+    assert.deepEqual([f.dock.readState().hidden, f.dock.readState().pinned], [['ok.app'], []], 'a hand-edited state keeps only valid ids');
+    // On: the launcher restarts with the new list, and a failed restart puts the previous list back.
+    f = fixture({homeData: PM});
+    await f.dock.enable();
+    f.tv.started = null;
+    s = await f.dock.setAppList('pinned', ['com.samsung.tv.store']);
+    assert.ok(f.tv.started, 'the running launcher was restarted');
+    assert.deepEqual(f.dock.entries().filter(e => !e.system).map(e => e.appId), ['org.tizen.netflix-app', 'com.samsung.tv.store'], 'csfs row: pinned apps follow it');
+    f.tv.neverStarts = true;
+    await assert.rejects(f.dock.setAppList('hidden', ['org.tizen.netflix-app']), /did not start/);
+    assert.deepEqual(f.dock.readState().hidden, [], 'failed restart: the previous hidden list is back');
+
     console.log('PASS dock service: on, off, boot start, crash restart, back-off that never switches it off');
 })().catch(e => { console.error(e); process.exitCode = 1; });
 

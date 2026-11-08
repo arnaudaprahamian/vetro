@@ -207,5 +207,37 @@ const tick = () => new Promise(r => setImmediate(r));
     custom = el('dockCustom').innerHTML;
     assert.match(custom, /Turn it off in the Vetro launcher tab/); assert.match(custom, /data-custom-switch[^>]* disabled/); assert.match(custom, /<select[^>]* disabled/);
     sandbox.inventory = [];
+
+    // Launcher tiles: Hide, Show, Pin and Unpin send the whole list, and an invalid id is said, not sent.
+    el('dock').onclick({target: {closest: () => ({dataset: {dockTab: 'vetro'}})}});
+    dock = Object.assign({}, dock, {mode: 'vetro', enabled: true, running: true, hidden: ['org.example.gone'], pinned: [],
+        entries: [{slug: 'netflix', label: 'Netflix', appId: 'org.tizen.netflix-app', system: false, source: null}, {slug: 'livetv', label: 'Live TV', appId: 'org.tizen.tv-viewer', system: false, source: null},
+            {slug: 'in-hdmi1', label: 'HDMI 1', appId: 'source:13', system: false, source: 13}, {slug: 'settings', label: 'Settings', appId: 'key:XF86SysMenu', system: true, source: null}]});
+    await reload();
+    page = el('dockBody').innerHTML;
+    assert.match(page, /<h3>Launcher tiles<\/h3>/);
+    assert.match(page, /data-dock-hide="org\.tizen\.netflix-app"/);
+    assert.doesNotMatch(page, /data-dock-hide="(org\.tizen\.tv-viewer|source:13|key:XF86SysMenu)"/, 'no Hide button that would do nothing: Live TV, sources and system pills');
+    assert.match(page, /data-dock-show="org\.example\.gone"/);
+    assert.match(page, /Apps store is com\.samsung\.tv\.store/);
+    const tileCalls = () => calls.filter(c => c.url === '/dock' && c.body && (c.body.action === 'hidden' || c.body.action === 'pinned'));
+    await el('dock').onclick({target: {closest: () => ({dataset: {dockHide: 'org.tizen.netflix-app'}})}}); await tick(); await tick();
+    assert.deepEqual(tileCalls().pop().body, {action: 'hidden', appIds: ['org.example.gone', 'org.tizen.netflix-app']});
+    await el('dock').onclick({target: {closest: () => ({dataset: {dockShow: 'org.example.gone'}})}}); await tick(); await tick();
+    assert.deepEqual(tileCalls().pop().body, {action: 'hidden', appIds: []});
+    const sent = tileCalls().length;
+    el('dockPinInput').value = 'bad id;';
+    el('dock').onclick({target: {closest: () => ({dataset: {dockPin: ''}})}});
+    assert.equal(tileCalls().length, sent, 'an invalid id is not sent');
+    assert.match(el('dockBody').innerHTML, /bad id; is not an app id/, 'and the page says why');
+    el('dockPinInput').value = ' com.samsung.tv.store ';
+    await el('dock').onclick({target: {closest: () => ({dataset: {dockPin: ''}})}}); await tick(); await tick();
+    assert.deepEqual(tileCalls().pop().body, {action: 'pinned', appIds: ['com.samsung.tv.store']});
+    assert.doesNotMatch(el('dockBody').innerHTML, /is not an app id/);
+    dock = Object.assign({}, dock, {pinned: ['com.samsung.tv.store']});
+    await reload();
+    assert.match(el('dockBody').innerHTML, /data-dock-unpin="com\.samsung\.tv\.store"/);
+    await el('dock').onclick({target: {closest: () => ({dataset: {dockUnpin: 'com.samsung.tv.store'}})}}); await tick(); await tick();
+    assert.deepEqual(tileCalls().pop().body, {action: 'pinned', appIds: []});
     console.log('PASS launcher UI: confirmation before turning on, direct turn off, state, app list, errors');
 })().catch(e => { console.error(e); process.exitCode = 1; });
