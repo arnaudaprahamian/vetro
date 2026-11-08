@@ -46,6 +46,13 @@ Not ported from the designer (the launcher cannot do them): blurred background b
 brightness boost on a selected pill, and the desaturation of unselected icons. With the chosen design there are no
 name labels and no clock, so the label styling options are not carried either.
 
+One name is written, as in the designer's input cards: on the inputs panel, the device behind the focused HDMI port
+(PlayStation 5, say) as a subtitle under its tile, in the same 26 px text a label would use. The service gives it in
+the list's seventh column (the label keeps "HDMI 2 - PlayStation 5" for the dashboard); TV and a port without a name
+get none, the tile already says which port it is. When any input has a name, that page's pill grows by a name row
+(`DockLayout.NameRow`) and the shared window by as much, so the subtitle sits inside the pill, above the "Back"
+capsule, and the apps page stays where it was on screen. The apps page writes no names.
+
 ## Build
 
 ```sh

@@ -145,6 +145,47 @@ namespace Launcher.Tests
                 T.True(Catalog.ValidIconFile("in-hdmi1.png") && !Catalog.ValidIconFile(null) && !Catalog.ValidIconFile(new string('a', 41) + ".png"), "icon file names");
             });
 
+            T.Run("catalog: the subtitle column", () =>
+            {
+                var r = Catalog.Parse("in-hdmi2\tHDMI 2 - PlayStation 5\tsource:14\t\tdev-gamepad-2.png\t\tPlayStation 5\nin-tv\tTV\tsource:0\nin-hdmi4\tHDMI 4\tsource:16\t\t\t\t \n");
+                T.Eq(r.Problems.Length, 0, "valid lines");
+                T.Eq(r.Entries[0].Subtitle, "PlayStation 5", "the device alone");
+                T.Eq(r.Entries[0].Label, "HDMI 2 - PlayStation 5", "the label keeps the port");
+                T.Eq(r.Entries[1].Subtitle, null, "no column: none");
+                T.Eq(r.Entries[2].Subtitle, null, "blank: none");
+                var b = Catalog.Parse("x\tX\tsource:13\t\t\t\t" + new string('a', 41) + "\n");
+                T.True(b.Entries.Length == 0 && b.Problems.Length == 1, "rejects a subtitle over 40 characters");
+            });
+
+            T.Run("layout: the inputs panel's name row, in a window made taller for it", () =>
+            {
+                var plain = new DockLayout(5, 1920, 1080, 0, true, -1);
+                var named = new DockLayout(5, 1920, 1080, 0, true, -1, true, 0);
+                T.Eq(plain.NameRow, DockLayout.LabelRow, "no name row unless asked (the design has none)");
+                T.Eq(named.NameRow, DockLayout.LabelGap + DockLayout.LabelH, "a row of its own");
+                T.Eq(named.PillH, plain.PillH + named.NameRow - plain.NameRow, "the pill grows by the row");
+                var apps = new DockLayout(13, 1920, 1080, 0, false, 11, false, named.WinH);
+                var inputs = new DockLayout(5, 1920, 1080, apps.WinW, true, -1, true, named.WinH);
+                T.Eq(apps.WinH, inputs.WinH, "one window height");
+                T.Eq(apps.WinY, inputs.WinY, "one window position");
+                var alone = new DockLayout(13, 1920, 1080, 0, false, 11);
+                T.Eq(apps.OffsetY, apps.WinH - alone.WinH, "the apps page moves down the taller window");
+                T.Eq(apps.WinY + apps.Top, alone.WinY + alone.Top, "the apps pill stays where it was on screen");
+                T.Eq(apps.WinH - (apps.Top + apps.PillH), DockLayout.Margin, "apps pill: the shadow margin below");
+                T.Eq(inputs.OffsetY, 0, "the inputs page sized the window");
+                T.Eq(inputs.Top, DockLayout.Margin, "raised: the shadow margin above");
+                T.Eq(inputs.WinY + inputs.Top + inputs.PillH, alone.WinY + new DockLayout(5, 1920, 1080, 0, true, -1).Top + plain.PillH, "the inputs pill keeps its bottom edge: it grows upwards");
+                int labelTop = inputs.LabelTop(0);
+                T.True(labelTop >= inputs.Top + DockLayout.PadTop + DockLayout.FocusIcon, "the name is under the icons");
+                T.True(labelTop + DockLayout.LabelH <= inputs.Top + inputs.PillH, "and inside the pill");
+                T.True(labelTop + DockLayout.LabelH <= inputs.HintTop(0), "above the Back capsule");
+                T.True(inputs.HintTop(0) + DockLayout.CapsuleH <= inputs.WinH - DockLayout.Margin, "the capsule stays clear of the bottom shadow margin");
+                T.Eq(inputs.HintTop(0) - (inputs.Top + inputs.PillH), DockLayout.HintH - DockLayout.CapsuleH, "the capsule keeps its gap under the pill");
+                var noNames = new DockLayout(13, 1920, 1080, 0, false, 11, false, 0);
+                T.Eq(noNames.WinH, alone.WinH, "without subtitles nothing changes");
+                T.Eq(noNames.Top, alone.Top, "same place");
+            });
+
             T.Run("layout: a narrower page is centred in the shared window", () =>
             {
                 var wide = new DockLayout(13, 1920, 1080);

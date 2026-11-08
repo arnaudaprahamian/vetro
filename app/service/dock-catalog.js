@@ -18,8 +18,8 @@ var TRAILING_TABS_RE = /\t+$/;
 //   - the installed apps       the same database, with their label: the Smart Hub registry keeps the rows of apps
 //                              uninstalled since (four ghost tiles on a S95B), so the package manager decides
 // Everything is read in one shell call. The result is a tab-separated list for the dock
-// (dock/src/Core/Catalog.cs): slug, label, app id, fallback, icon file. The dock rounds the
-// icons itself; this module never touches an image.
+// (dock/src/Core/Catalog.cs): slug, label, app id, fallback, icon file, app to close first, subtitle. The dock rounds
+// the icons itself; this module never touches an image.
 
 var ORDER_DIR = '/opt/usr/home/owner/apps_rw/com.samsung.tv.csfs/data';
 // The 2022 Home (Tizen 6.5 with the Media, Game and Ambient hubs, e.g. the S95B) keeps no app row in csfs: its
@@ -169,6 +169,9 @@ function sourceEntries(parsed, options) {
         if (samsung && device) entry.altIcon = device;
         // The Sources page always keeps TV, HDMI1, HDMI2, HDMI3, HDMI4 order and port labels.
         entry.inputLabel = type === 0 || name === base ? base : cleanLabel(base + ' - ' + name, base);
+        // What the inputs panel writes under the focused tile: the device alone, since the tile already shows the port.
+        // Nothing for TV or for a port without a name.
+        entry.subtitle = type === 0 || name === base ? '' : name;
         return entry;
     });
 }
@@ -262,9 +265,9 @@ function build(parsed, options) {
     return {entries: entries, inputs: inputs, skipped: skipped, homeApp: parsed.homeApp || null};
 }
 
-function entryLine(e, label) { return [e.slug, label || e.label, e.appId, '', e.icon || '', e.killFirst || ''].join('\t').replace(TRAILING_TABS_RE, ''); }
+function entryLine(e, label, subtitle) { return [e.slug, label || e.label, e.appId, '', e.icon || '', e.killFirst || '', subtitle || ''].join('\t').replace(TRAILING_TABS_RE, ''); }
 function inputsTsv(built) {
-    return ['# Sources in physical port order'].concat((built.inputs || []).map(function (e) { return entryLine(e, e.inputLabel); })).join('\n') + '\n';
+    return ['# Sources in physical port order'].concat((built.inputs || []).map(function (e) { return entryLine(e, e.inputLabel, e.subtitle); })).join('\n') + '\n';
 }
 
 function tsv(built) {

@@ -28,6 +28,10 @@ namespace Launcher.Core
         public const int PadBottom = 16;
         /// <summary>Height of the name/clock row under the icons; none when the design shows neither.</summary>
         public static readonly int LabelRow = Design.ShowLabels || Design.ShowClock ? LabelGap + LabelH : 0;
+        /// <summary>This page's name row: <see cref="LabelRow"/>, or a row of its own when the page shows subtitles.</summary>
+        public readonly int NameRow;
+        /// <summary>True when this page has a name row under the icons.</summary>
+        public bool HasNameRow { get { return NameRow > 0; } }
         public const int Margin = 40;          // room for the bar's shadow on every side (also: pill bottom to screen bottom)
         public const int BottomGap = 0;        // window bottom to screen bottom
         public const int ScreenSideGap = 12;   // pill never closer than this to the screen edge
@@ -67,6 +71,8 @@ namespace Launcher.Core
         public readonly int AppsW, PinnedW;
         /// <summary>Shift of this page's pill inside a window made for a wider page (0 for the widest).</summary>
         public readonly int OffsetX;
+        /// <summary>Shift of this page down a window made taller by another page's name row, so it sits where it would on its own.</summary>
+        public readonly int OffsetY;
         /// <summary>
         /// True for the panel page: its pill sits <see cref="HintH"/> higher than the apps pill, and the
         /// freed band underneath holds the back hint. The window is the same height for both pages.
@@ -86,6 +92,14 @@ namespace Launcher.Core
         /// before them); anything outside 1..count-1 means no group.
         /// </summary>
         public DockLayout(int count, int screenW, int screenH, int windowW, bool raised, int groupStart)
+            : this(count, screenW, screenH, windowW, raised, groupStart, false, 0) { }
+
+        /// <summary>
+        /// <paramref name="nameRow"/> gives this page a name row under the icons even when the design has none (the inputs
+        /// panel writes the focused device's name there); its pill is that much taller. <paramref name="windowH"/> is the
+        /// height of the shared window when a taller page sized it: this page then keeps its place at the bottom.
+        /// </summary>
+        public DockLayout(int count, int screenW, int screenH, int windowW, bool raised, int groupStart, bool nameRow, int windowH)
         {
             if (count < 1) throw new ArgumentOutOfRangeException("count");
             if (screenW < 640 || screenH < 360) throw new ArgumentOutOfRangeException("screen");
@@ -100,10 +114,12 @@ namespace Launcher.Core
             int maxPill = Math.Min(MaxPillW, screenW - 2 * Margin - 2 * ScreenSideGap);
             PillW = Math.Min(ContentW + 2 * PadX, maxPill);
             ViewportW = PillW - 2 * PadX - fixedW;
-            PillH = PadTop + FocusIcon + LabelRow + PadBottom;
+            NameRow = nameRow ? LabelGap + LabelH : LabelRow;
+            PillH = PadTop + FocusIcon + NameRow + PadBottom;
             WinW = PillW + 2 * Margin;
             if (windowW > WinW) { OffsetX = (windowW - WinW) / 2; WinW = windowW; }
             WinH = PillH + 2 * Margin + HintH;
+            if (windowH > WinH) { OffsetY = windowH - WinH; WinH = windowH; }
             Raised = raised;
             WinX = (screenW - WinW) / 2;
             WinY = screenH - WinH - BottomGap;
@@ -149,7 +165,7 @@ namespace Launcher.Core
         }
 
         /// <summary>Window-relative y of the pill's top edge (without the slide).</summary>
-        public int Top { get { return Margin + (Raised ? 0 : HintH); } }
+        public int Top { get { return Margin + OffsetY + (Raised ? 0 : HintH); } }
 
         public int RowCenterY { get { return Top + PadTop + FocusIcon / 2; } }
 

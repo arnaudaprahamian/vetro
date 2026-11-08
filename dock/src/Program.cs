@@ -937,10 +937,14 @@ namespace Launcher
 
                 _apps = LoadApps(Arg(args, "--apps") ?? Path.Combine(AppContext.BaseDirectory, "res", "apps.tsv"));
                 _inputs = LoadList(Arg(args, "--inputs") ?? Path.Combine(AppContext.BaseDirectory, "res", "inputs.tsv"), Catalog.BuiltInInputs);
-                // One window for both pages: as wide as the wider of the two, the other is centred in it.
+                // The inputs panel writes the focused device's name under it, when any input has one: its pill gets a name row.
+                bool subtitles = Array.Exists(_inputs, e => e.Subtitle != null);
+                // One window for both pages: as wide as the wider of the two, as tall as the taller; the other is centred
+                // in it and keeps its place at the bottom.
                 int windowW = Math.Max(new DockLayout(_apps.Length, screenW, screenH).WinW, new DockLayout(_inputs.Length, screenW, screenH).WinW);
-                var layout = new DockLayout(_apps.Length, screenW, screenH, windowW, false, Catalog.GroupStart(_apps));
-                var inputsLayout = new DockLayout(_inputs.Length, screenW, screenH, windowW, true, -1);
+                int windowH = new DockLayout(_inputs.Length, screenW, screenH, 0, true, -1, subtitles, 0).WinH;
+                var layout = new DockLayout(_apps.Length, screenW, screenH, windowW, false, Catalog.GroupStart(_apps), false, windowH);
+                var inputsLayout = new DockLayout(_inputs.Length, screenW, screenH, windowW, true, -1, subtitles, windowH);
                 _appsCtl = new Controller(layout) { PanelEnabled = true };
                 _inputsCtl = new Controller(inputsLayout, PageKind.Panel);
                 _ctl = _appsCtl;
@@ -963,7 +967,7 @@ namespace Launcher
                 if (dumpIcons != null && Directory.Exists(dumpIcons)) Dock.DumpIconsTo = dumpIcons;
                 _appsDock = new Dock(_win, layout, _apps, res, Log, Design.HintText, true);
                 _appsDock.Build();
-                _inputsDock = new Dock(_win, inputsLayout, _inputs, res, Log, "Back", false);
+                _inputsDock = new Dock(_win, inputsLayout, _inputs, res, Log, "Back", false, subtitles);
                 _inputsDock.Build();
                 _inputsDock.SetVisible(false);
                 _dock = _appsDock;

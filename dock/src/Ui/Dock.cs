@@ -21,6 +21,8 @@ namespace Launcher.Ui
         private readonly AppEntry[] _items;
         private readonly string _assets;
         private readonly Action<string> _log;
+        // Names under the focused icon: the design's labels, or this page's subtitles (the inputs panel's device names).
+        private readonly bool _subtitles, _labels;
 
         private IntPtr _shadow, _pill, _clip, _appsClip, _highlight, _highlight2, _ring, _ring2, _clock, _divider;
         // Two name labels cross-fade (see LabelFader): the name under the icon being left and the one being reached.
@@ -57,9 +59,16 @@ namespace Launcher.Ui
         /// <param name="hint">Word of the navigation hint ("Input", "Back"), or null for none.</param>
         /// <param name="hintUp">True: chevron up, capsule above the pill; false: chevron down, below it.</param>
         public Dock(IntPtr win, DockLayout layout, AppEntry[] items, string assetsDir, Action<string> log, string hint, bool hintUp)
+            : this(win, layout, items, assetsDir, log, hint, hintUp, false) { }
+
+        /// <param name="subtitles">True: the focused item's <see cref="AppEntry.Subtitle"/> is written on the name row
+        /// under it, which <paramref name="layout"/> must have (<see cref="DockLayout.HasNameRow"/>).</param>
+        public Dock(IntPtr win, DockLayout layout, AppEntry[] items, string assetsDir, Action<string> log, string hint, bool hintUp, bool subtitles)
         {
             _win = win; _layout = layout; _items = items; _assets = assetsDir; _log = log;
             _hint = hint; _hintUp = hintUp;
+            _subtitles = subtitles && layout.HasNameRow;
+            _labels = Design.ShowLabels || _subtitles;
             _evas = Efl.evas_object_evas_get(win);
             _icon = new IntPtr[items.Length];
             _initials = new IntPtr[items.Length];
@@ -114,7 +123,7 @@ namespace Launcher.Ui
                 _dividerBox.W = -1;
             }
 
-            if (Design.ShowLabels)
+            if (_labels)
                 for (int k = 0; k < 2; k++)
                 {
                     _label[k] = Efl.evas_object_text_add(_evas);
@@ -461,7 +470,7 @@ namespace Launcher.Ui
                 if (da != _dividerAlpha) { _dividerAlpha = da; Tint(_divider, da); }
             }
 
-            if (Design.ShowLabels) ApplyLabels(c, slide, presence, scroll);
+            if (_labels) ApplyLabels(c, slide, presence, scroll);
             if (Design.ShowClock) ApplyClock(slide, presence);
             if (_hintText != IntPtr.Zero) ApplyHint(slide, presence);
         }
@@ -511,8 +520,9 @@ namespace Launcher.Ui
                 int idx = _fader.Index[k];
                 if ((_fader.Dirty & (1 << k)) != 0 && idx >= 0)
                 {
-                    // A pill carries its own name; nothing is written under it.
-                    string text = _layout.IsPinned(idx) ? "" : idx == _current ? _items[idx].Label + "  \u00b7  current" : _items[idx].Label;
+                    // A pill carries its own name; nothing is written under it. A subtitle may be empty: then nothing either.
+                    string name = _subtitles ? _items[idx].Subtitle ?? "" : _items[idx].Label;
+                    string text = _layout.IsPinned(idx) || name.Length == 0 ? "" : idx == _current ? name + "  \u00b7  current" : name;
                     Efl.evas_object_text_text_set(_label[k], text);
                     _labelW[k] = Efl.evas_object_text_horiz_advance_get(_label[k]);
                     _labelX[k] = int.MinValue;   // placed again below
